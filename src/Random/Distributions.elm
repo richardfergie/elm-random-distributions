@@ -9,7 +9,9 @@ core Random library.
 
 -}
 
+import Array
 import Random
+import String
 
 {-| The error function
 Approximation with a maximal error of 1.2*10^-7.
@@ -186,14 +188,42 @@ zigguratTables n y1 layerArea pFunc invPFunc =
 
 https://en.wikipedia.org/wiki/Ziggurat_algorithm
 -}
-ziggurat : List (Float, Float) -> (Float -> Float) -> Random.Generator Float -> Random.Generator Float
-ziggurat tables pFunc tailFunc = tailFunc
-  -- let
-  --   numLayers = List.length tables
-  --   layer = Random.int 0 (numLayers-1)
-  --   x =
-  -- in
-  --   tailFunc
+ziggurat : Array.Array (Float, Float) -> (Float -> Float) -> Random.Generator Float -> Random.Generator Float
+ziggurat tables pFunc tailGen =
+  let
+    numLayers = Array.length tables
+    layerGen = Random.int 0 (numLayers-2)
+    layerU0U1gen = Random.map3 (,,) layerGen probability probability
+
+    chooseLayer (i, u0, u1) =
+      let
+        (xi, yi) = case Array.get i tables of
+          Just pair -> pair
+          Nothing -> Debug.crash (String.append "Index i='" <| String.append (toString i) "'out of range")
+        (xi1, yi1) = case Array.get (i+1) tables of
+          Just pair -> pair
+          Nothing -> Debug.crash (String.append "Index i+1='" <| String.append (toString (i+1)) "'out of range")
+        x = u0*xi
+      in
+        if x < xi1
+          then
+            identityGenerator x
+          else
+            if i == 0
+              then
+                tailGen
+              else
+                let
+                  y = yi + u1*(yi1 - yi)
+                  fx = pFunc x
+                in
+                  if y < fx
+                    then
+                      identityGenerator x
+                    else
+                      layerU0U1gen `Random.andThen` chooseLayer
+  in
+    layerU0U1gen `Random.andThen` chooseLayer
 
 {-| Fallback algorithm for the tail of a normal distribution
 
@@ -221,7 +251,7 @@ zigguratNormalTail x1 =
     u1u2gen `Random.andThen` fallback
 
 tableSize = 256
-normalZigguratTables : List (Float, Float)
+normalZigguratTables : Array.Array (Float, Float)
 normalZigguratTables =
   let
     n = tableSize
@@ -232,7 +262,7 @@ normalZigguratTables =
     tailArea = erfc x1
     layerArea = x1*y1 + tailArea
   in
-    zigguratTables n y1 layerArea pFunc invPFunc
+    Array.fromList <| zigguratTables n y1 layerArea pFunc invPFunc
 
 
 {-| Generate a standard normal distribution using the Ziggurat algorithm.
@@ -246,9 +276,11 @@ normal =
   let
     tables = normalZigguratTables
     pFunc = normalDensity 0 1
-    (x1, y1) = case List.head tables of
+    (x1, y1) = case Array.get 0 tables of
+    -- (x1, y1) = case List.head tables of
       Just pair -> pair
       Nothing -> Debug.crash "The ziggurat tables for the normal distribution were empty"
     tailFunc = zigguratNormalTail x1
+    oneSidedNormal = ziggurat tables pFunc tailFunc
   in
-    ziggurat tables pFunc tailFunc
+    Random.map2 (\x b -> if b then x else -x) oneSidedNormal Random.bool

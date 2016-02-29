@@ -1,2 +1,2 @@
 # elm-random-distributions
-Provides standard non-uniform random sampling methods for the core Random library.
+Provides non-uniform distributions for the core Random library
