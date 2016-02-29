@@ -1,11 +1,24 @@
-module Random.Distributions (normal) where
--- module Random.Distributions (normal,erf, erfc, normalDensity, normalDensityInverse, normalZigguratTables) where
+module Random.Distributions (normal, normalDensity, normalDensityInverse, erf, erfc, ziggurat, zigguratTables, zigguratX1) where
 
-{-| This library provides standard non-uniform random sampling methods for the
-core Random library.
+{-| This library provides non-uniform distributions for the core Random library.
 
-# Distributions implemented
+# Generators
 @docs normal
+
+# Distribution functions
+@docs normalDensity
+@docs normalDensityInverse
+@docs erf
+@docs erfc
+
+# Ziggurat algorithm
+
+Helper functions implementing the [Ziggurat
+algorithm](https://en.wikipedia.org/wiki/Ziggurat_algorithm).
+
+@docs ziggurat
+@docs zigguratTables
+@docs zigguratX1
 
 -}
 
@@ -19,12 +32,13 @@ Approximation with a maximal error of 1.2*10^-7.
 Directly from wikipedia:
 https://en.wikipedia.org/wiki/Error_function#Numerical_approximation
 
-\begin{align}
-\tau = {} & t\cdot\exp\left(-x^2-1.26551223+1.00002368 t+0.37409196 t^2+0.09678418 t^3\right.\\
-& \left.{}-0.18628806 t^4+0.27886807 t^5-1.13520398 t^6+1.48851587\cdot t^7\right. \\
-& \left.{}-0.82215223 t^8+0.17087277 t^9\right)
-\end{align}
+    \begin{align}
+    \tau = {} & t\cdot\exp\left(-x^2-1.26551223+1.00002368 t+0.37409196 t^2+0.09678418 t^3\right.\\
+    & \left.{}-0.18628806 t^4+0.27886807 t^5-1.13520398 t^6+1.48851587\cdot t^7\right. \\
+    & \left.{}-0.82215223 t^8+0.17087277 t^9\right)
+    \end{align}
 -}
+erf : Float -> Float
 erf x =
   let
     t = 1.0 / (1 + 0.5 * (abs x))
@@ -48,9 +62,10 @@ erf x =
   in
     clamp -1 1 y
 
-{-| The complimentary error function
+{-| The complimentary error function.
 Approximation with a maximal error of 1.2*10^-7.
 -}
+erfc : Float -> Float
 erfc x = clamp 0 2 (1 - erf x)
 
 {-| The natural logarithm
@@ -67,9 +82,12 @@ identityGenerator : Float -> Random.Generator Float
 identityGenerator x =
   Random.map (always x) Random.bool
 
--- probabilities : Generator (Float, Float)
--- probabilities = pair probability probability
+{-| The density function for a normal distribution.
 
+    y = normalDensity mu sigma x
+
+-}
+normalDensity : Float -> Float -> Float -> Float
 normalDensity mu sigma x =
   let
     factor = 1 / (sigma * sqrt (2*pi))
@@ -77,6 +95,12 @@ normalDensity mu sigma x =
   in
     factor * e ^ exponent
 
+{-| The inverse of the density function for a normal distribution.
+
+    x = normalDensityInverse mu sigma y
+
+-}
+normalDensityInverse : Float -> Float -> Float -> Float
 normalDensityInverse mu sigma y =
   let
     z = clamp 0 1 y
@@ -90,6 +114,9 @@ normalDensityInverse mu sigma y =
 function.
 
 https://en.wikipedia.org/wiki/Ziggurat_algorithm#Finding_x1_and_A
+
+    x1 = zigguratX1 n pFunc invPFunc
+
 -}
 zigguratX1 : Int -> (Float -> Float) -> (Float -> Float) -> Float
 zigguratX1 n pFunc invPFunc =
@@ -150,7 +177,6 @@ bisectionSearch f eps n a b =
       in
         if n <= 0 || (sign va == sign vb)
           then Nothing
-          -- then Just 57
           else
             let
               c = (a + b) / 2
@@ -168,9 +194,13 @@ bisectionSearch f eps n a b =
       else search n b a
 
 
-{-| Generate the ziggurat tables
+{-| Generate the ziggurat tables.
 
 https://en.wikipedia.org/wiki/Ziggurat_algorithm#Generating_the_tables
+
+    tables = zigguratTables numLayers y1 layerArea pFunc invPFunc
+    (xs, ys) = List.unzip tables
+
 -}
 zigguratTables : Int -> Float -> Float -> (Float -> Float) -> (Float -> Float) -> List (Float, Float)
 zigguratTables n y1 layerArea pFunc invPFunc =
@@ -184,9 +214,21 @@ zigguratTables n y1 layerArea pFunc invPFunc =
   in
     List.scanl (\_ x1y1 -> nextLayer x1y1) (x1, y1) [1..n]
 
-{-| Implement the Ziggurat algorithm for one-sided distributions.
+{-| Implement the [Ziggurat algorithm](https://en.wikipedia.org/wiki/Ziggurat_algorithm) for one-sided distributions.
 
-https://en.wikipedia.org/wiki/Ziggurat_algorithm
+    oneSidedNormalGenerator =
+      let
+        n = numLayers
+        pFunc = normalDensity 0 1
+        invPFunc = normalDensityInverse 0 1
+        x1 = zigguratX1 n pFunc invPFunc
+        y1 = pFunc x1
+        listTables = zigguratTables n y1 layerArea pFunc invPFunc
+        tables = Array.fromList listTables
+        tailGen = zigguratNormalTail x1
+      in
+        ziggurat tables pFunc tailGen
+
 -}
 ziggurat : Array.Array (Float, Float) -> (Float -> Float) -> Random.Generator Float -> Random.Generator Float
 ziggurat tables pFunc tailGen =
@@ -265,10 +307,7 @@ normalZigguratTables =
     Array.fromList <| zigguratTables n y1 layerArea pFunc invPFunc
 
 
-{-| Generate a standard normal distribution using the Ziggurat algorithm.
-
-https://en.wikipedia.org/wiki/Ziggurat_algorithm
-
+{-| Generate samples from a standard normal distribution.
 -}
 normal : Random.Generator Float
 -- normal = ziggurat <| normalDensity 0 1
