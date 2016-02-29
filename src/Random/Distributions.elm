@@ -80,17 +80,107 @@ normalDensityInverse mu sigma y =
   in
     mu + sqrt (-2 * sigma^2 * ln (y / factor))
 
+{-| Find x1 and A for a given table size, density function, and inverse density
+function.
 
-tableSize = 256
-normalZigguratTable = [0..tableSize]
+https://en.wikipedia.org/wiki/Ziggurat_algorithm#Finding_x1_and_A
+-}
+zigguratX1 : Int -> (Float -> Float) -> (Float -> Float) -> Float
+zigguratX1 n pFunc invPFunc =
+  let
+    f0 = pFunc 0
+    areaDiffFunc x1 =
+      let
+        y1 = pFunc x1
+        tailArea = erfc x1
+        baseLayerArea = x1*y1 + tailArea
+        tables = zigguratTables n y1 baseLayerArea pFunc invPFunc
+        (xn_1, yn_1) =
+          case List.head <| List.drop (n-1) <| tables of
+            Just pair -> pair
+            Nothing -> Debug.crash "The list tables was not of length n"
+        topLayerArea = xn_1*(f0 - yn_1)
+      in
+        topLayerArea - baseLayerArea
+    x1 =
+      case bisectionSearch areaDiffFunc 1e-5 100 0 100 of
+        Just v -> v
+        Nothing -> Debug.crash "The bisectionSearch failed"
+  in
+    x1
 
-{-| Implement the Ziggurat algorithm.
+{-| Bisection method for root finding
+
+https://en.wikipedia.org/wiki/Bisection_method
+-}
+bisectionSearch : (Float -> Float) -> Float -> Int -> Float -> Float -> Maybe Float
+bisectionSearch f eps n a b =
+  let
+    sign x =
+      if x > 0
+        then 1
+        else -1
+    search n a b =
+      let
+        va = f a
+        vb = f b
+      in
+        if n <= 0 || sign va == sign vb
+          then Nothing
+          else
+            let
+              c = (a + b) / 2
+              vc = f c
+            in
+              if vc == 0 || (b - a) / 2 < eps
+                then Just c
+                else
+                  if sign vc == sign va
+                    then search (n-1) c b
+                    else search (n-1) a c
+  in
+    if a < b
+      then search n a b
+      else search n b a
+
+
+{-| Generate the ziggurat tables
+
+https://en.wikipedia.org/wiki/Ziggurat_algorithm#Generating_the_tables
+-}
+zigguratTables : Int -> Float -> Float -> (Float -> Float) -> (Float -> Float) -> List (Float, Float)
+zigguratTables n y1 layerArea pFunc invPFunc =
+  let
+    x1 = invPFunc y1
+    nextLayer (xi, yi) =
+      let
+        yi1 = yi + layerArea / xi
+        xi1 = invPFunc yi1
+      in (xi1, yi1)
+  in
+    List.scanl (\_ x1y1 -> nextLayer x1y1) (x1, y1) [1..n]
+
+{-| Implement the Ziggurat algorithm for one-sided distributions.
 
 https://en.wikipedia.org/wiki/Ziggurat_algorithm
-
 -}
-ziggurat density = Random.float 0 1
+ziggurat pFunc tailFallback = Random.float 0 1
 --   let n =
+
+
+tableSize = 256
+normalZigguratTables =
+  let
+    n = tableSize
+    pFunc = normalDensity 0 1
+    invPFunc = normalDensityInverse 0 1
+    x1 = zigguratX1 n pFunc invPFunc
+    y1 = pFunc x1
+    tailArea = erfc x1
+    layerArea = x1*y1 + tailArea
+  in
+    zigguratTables n y1 layerArea pFunc invPFunc
+
 
 {-| Fallback algorithm for the tail of a normal distribution
 
