@@ -1,4 +1,5 @@
 module Random.Distributions (normal) where
+-- module Random.Distributions (normal,erf, erfc, normalDensity, normalDensityInverse, normalZigguratTables) where
 
 {-| This library provides standard non-uniform random sampling methods for the
 core Random library.
@@ -24,9 +25,9 @@ https://en.wikipedia.org/wiki/Error_function#Numerical_approximation
 -}
 erf x =
   let
-    t = 1 / (1 + 0.5 * abs x)
-    exponent =
-      -x^2
+    t = 1.0 / (1 + 0.5 * (abs x))
+    exponent = (
+      -(x^2)
       - 1.26551223
       + 1.00002368 * t
       + 0.37409196 * t^2
@@ -36,19 +37,19 @@ erf x =
       - 1.13520398 * t^6
       + 1.48851587 * t^7
       - 0.82215223 * t^8
-      + 0.17087277 * t^9
+      + 0.17087277 * t^9)
     tau = t * e ^ exponent
     y =
       if x >= 0
         then 1 - tau
-        else tau + 1
+        else tau - 1
   in
-    clamp 0 1 y
+    clamp -1 1 y
 
 {-| The complimentary error function
 Approximation with a maximal error of 1.2*10^-7.
 -}
-erfc x = clamp 0 1 (1 - erf x)
+erfc x = clamp 0 2 (1 - erf x)
 
 {-| The natural logarithm
 -}
@@ -70,15 +71,18 @@ identityGenerator x =
 normalDensity mu sigma x =
   let
     factor = 1 / (sigma * sqrt (2*pi))
-    exponent = -(x-mu)^2 / (2*sigma^2)
+    exponent = -((x-mu)^2 / (2*sigma^2))
   in
     factor * e ^ exponent
 
 normalDensityInverse mu sigma y =
   let
+    z = clamp 0 1 y
     factor = 1 / (sigma * sqrt (2*pi))
+    scaledProb = clamp 0 1 <| z / factor
+    sqrDeviance = max 0 <| (-2 * sigma^2 * ln (scaledProb))
   in
-    mu + sqrt (-2 * sigma^2 * ln (y / factor))
+    mu + sqrt sqrDeviance
 
 {-| Find x1 and A for a given table size, density function, and inverse density
 function.
@@ -98,14 +102,31 @@ zigguratX1 n pFunc invPFunc =
         (xn_1, yn_1) =
           case List.head <| List.drop (n-1) <| tables of
             Just pair -> pair
-            Nothing -> Debug.crash "The list tables was not of length n"
+            Nothing -> Debug.crash "The list normal ziggurat tables was not of length n"
         topLayerArea = xn_1*(f0 - yn_1)
       in
         topLayerArea - baseLayerArea
+
+    searchEps = 1e-12
+    upperBound = 5
+
+    -- Find the lowest x1 for which areaDiffFunc returns a valid result.
+    -- Without this, the bisection search for x1 will fail.
+    diffValid x1 =
+      let
+        diff = areaDiffFunc x1
+      in
+        if isInfinite diff || isNaN diff
+          then -1 else 1
+    lowerBound = case bisectionSearch diffValid searchEps 100 0 upperBound of
+      Just v -> v + searchEps
+      Nothing -> Debug.crash "Could not find a stable lower bound for x1 while generating the normal ziggurat tables."
+
+    -- Perform a bisection search for x1.
     x1 =
-      case bisectionSearch areaDiffFunc 1e-5 100 0 100 of
+      case bisectionSearch areaDiffFunc searchEps 100 lowerBound upperBound of
         Just v -> v
-        Nothing -> Debug.crash "The bisectionSearch failed"
+        Nothing -> Debug.crash "The bisectionSearch failed while generating the normal ziggurat tables."
   in
     x1
 
@@ -125,8 +146,9 @@ bisectionSearch f eps n a b =
         va = f a
         vb = f b
       in
-        if n <= 0 || sign va == sign vb
+        if n <= 0 || (sign va == sign vb)
           then Nothing
+          -- then Just 57
           else
             let
               c = (a + b) / 2
@@ -164,23 +186,14 @@ zigguratTables n y1 layerArea pFunc invPFunc =
 
 https://en.wikipedia.org/wiki/Ziggurat_algorithm
 -}
-ziggurat pFunc tailFallback = Random.float 0 1
---   let n =
-
-
-tableSize = 256
-normalZigguratTables =
-  let
-    n = tableSize
-    pFunc = normalDensity 0 1
-    invPFunc = normalDensityInverse 0 1
-    x1 = zigguratX1 n pFunc invPFunc
-    y1 = pFunc x1
-    tailArea = erfc x1
-    layerArea = x1*y1 + tailArea
-  in
-    zigguratTables n y1 layerArea pFunc invPFunc
-
+ziggurat : List (Float, Float) -> (Float -> Float) -> Random.Generator Float -> Random.Generator Float
+ziggurat tables pFunc tailFunc = tailFunc
+  -- let
+  --   numLayers = List.length tables
+  --   layer = Random.int 0 (numLayers-1)
+  --   x =
+  -- in
+  --   tailFunc
 
 {-| Fallback algorithm for the tail of a normal distribution
 
@@ -192,6 +205,7 @@ For a normal distribution, Marsaglia suggests a compact algorithm:
   3.  If 2y > x^2, return x + x1.
   4.  Otherwise, go back to step 1.
 -}
+zigguratNormalTail : Float -> Random.Generator Float
 zigguratNormalTail x1 =
   let
     u1u2gen = Random.pair probability probability
@@ -206,6 +220,21 @@ zigguratNormalTail x1 =
   in
     u1u2gen `Random.andThen` fallback
 
+tableSize = 256
+normalZigguratTables : List (Float, Float)
+normalZigguratTables =
+  let
+    n = tableSize
+    pFunc = normalDensity 0 1
+    invPFunc = normalDensityInverse 0 1
+    x1 = zigguratX1 n pFunc invPFunc
+    y1 = pFunc x1
+    tailArea = erfc x1
+    layerArea = x1*y1 + tailArea
+  in
+    zigguratTables n y1 layerArea pFunc invPFunc
+
+
 {-| Generate a standard normal distribution using the Ziggurat algorithm.
 
 https://en.wikipedia.org/wiki/Ziggurat_algorithm
@@ -213,4 +242,13 @@ https://en.wikipedia.org/wiki/Ziggurat_algorithm
 -}
 normal : Random.Generator Float
 -- normal = ziggurat <| normalDensity 0 1
-normal = zigguratNormalTail 3.5
+normal =
+  let
+    tables = normalZigguratTables
+    pFunc = normalDensity 0 1
+    (x1, y1) = case List.head tables of
+      Just pair -> pair
+      Nothing -> Debug.crash "The ziggurat tables for the normal distribution were empty"
+    tailFunc = zigguratNormalTail x1
+  in
+    ziggurat tables pFunc tailFunc
