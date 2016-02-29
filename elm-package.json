@@ -1,0 +1,16 @@
+{
+    "version": "1.0.0",
+    "summary": "Standard non-uniform random sampling methods for the core Random library",
+    "repository": "https://github.com/mmetcalfe/elm-random-distributions.git",
+    "license": "MIT",
+    "source-directories": [
+        "src"
+    ],
+    "exposed-modules": [
+        "Random.Distributions"
+    ],
+    "dependencies": {
+        "elm-lang/core": "3.0.0 <= v < 4.0.0"
+    },
+    "elm-version": "0.16.0 <= v < 0.17.0"
+}
