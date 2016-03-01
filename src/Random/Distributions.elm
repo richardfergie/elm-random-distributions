@@ -129,7 +129,7 @@ zigguratX1 n pFunc invPFunc =
         baseLayerArea = x1*y1 + tailArea
         tables = zigguratTables n y1 baseLayerArea pFunc invPFunc
         (xn_1, yn_1) =
-          case List.head <| List.drop (n-1) <| tables of
+          case List.head <| List.drop n <| tables of -- get the last element
             Just pair -> pair
             Nothing -> Debug.crash "The list normal ziggurat tables was not of length n"
         topLayerArea = xn_1*(f0 - yn_1)
@@ -211,8 +211,12 @@ zigguratTables n y1 layerArea pFunc invPFunc =
         yi1 = yi + layerArea / xi
         xi1 = invPFunc yi1
       in (xi1, yi1)
+    layerList = List.scanl (\_ x1y1 -> nextLayer x1y1) (x1, y1) [1..n]
+    ficticiousX0Y0 = (layerArea/y1, 0)
   in
-    List.scanl (\_ x1y1 -> nextLayer x1y1) (x1, y1) [1..n]
+    ficticiousX0Y0 :: layerList
+
+
 
 {-| Implement the [Ziggurat algorithm](https://en.wikipedia.org/wiki/Ziggurat_algorithm) for one-sided distributions.
 
@@ -315,7 +319,7 @@ normal =
   let
     tables = normalZigguratTables
     pFunc = normalDensity 0 1
-    (x1, y1) = case Array.get 0 tables of
+    (x1, y1) = case Array.get 1 tables of
     -- (x1, y1) = case List.head tables of
       Just pair -> pair
       Nothing -> Debug.crash "The ziggurat tables for the normal distribution were empty"
