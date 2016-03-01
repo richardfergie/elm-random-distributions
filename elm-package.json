@@ -1,5 +1,5 @@
 {
-    "version": "1.0.0",
+    "version": "1.0.1",
     "summary": "Non-uniform distributions for the core Random library",
     "repository": "https://github.com/mmetcalfe/elm-random-distributions.git",
     "license": "MIT",
