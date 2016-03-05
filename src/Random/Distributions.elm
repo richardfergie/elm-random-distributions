@@ -266,19 +266,19 @@ function.
 
 https://en.wikipedia.org/wiki/Ziggurat_algorithm#Finding_x1_and_A
 
-    x1 = zigguratX1 n pFunc invPFunc
+    x1 = zigguratX1 n pdfFunc invPdfFunc cdfFunc
 
 -}
-zigguratX1 : Int -> (Float -> Float) -> (Float -> Float) -> Float
-zigguratX1 n pFunc invPFunc =
+zigguratX1 : Int -> (Float -> Float) -> (Float -> Float) -> (Float -> Float) -> Float
+zigguratX1 n pdfFunc invPdfFunc cdfFunc =
   let
-    f0 = pFunc 0
+    f0 = pdfFunc 0
     areaDiffFunc x1 =
       let
-        y1 = pFunc x1
-        tailArea = 1 - standardNormalCumulative x1 -- TODO: This is not generic.
+        y1 = pdfFunc x1
+        tailArea = 1 - cdfFunc x1
         baseLayerArea = x1*y1 + tailArea
-        tables = zigguratTables n y1 baseLayerArea pFunc invPFunc
+        tables = zigguratTables n y1 baseLayerArea pdfFunc invPdfFunc
         (xn_1, yn_1) =
           case List.head <| List.drop n <| tables of -- get the last element
             Just pair -> pair
@@ -374,15 +374,16 @@ zigguratTables n y1 layerArea pFunc invPFunc =
     oneSidedNormalGenerator =
       let
         n = numLayers
-        pFunc = normalDensity 0 1
-        invPFunc = normalDensityInverse 0 1
-        x1 = zigguratX1 n pFunc invPFunc
-        y1 = pFunc x1
-        listTables = zigguratTables n y1 layerArea pFunc invPFunc
+        pdfFunc = normalDensity 0 1
+        invPdfFunc = normalDensityInverse 0 1
+        cdfFunc = standardNormalCumulative
+        x1 = zigguratX1 n pdfFunc invPdfFunc cdfFunc
+        y1 = pdfFunc x1
+        listTables = zigguratTables n y1 layerArea pdfFunc invPdfFunc
         tables = Array.fromList listTables
         tailGen = zigguratNormalTail x1
       in
-        ziggurat tables pFunc tailGen
+        ziggurat tables pdfFunc tailGen
 
 -}
 ziggurat : Array.Array (Float, Float) -> (Float -> Float) -> Random.Generator Float -> Random.Generator Float
@@ -462,14 +463,15 @@ normalZigguratTables : Array.Array (Float, Float)
 normalZigguratTables =
   let
     n = tableSize
-    pFunc = normalDensity 0 1
-    invPFunc = normalDensityInverse 0 1
-    x1 = zigguratX1 n pFunc invPFunc
-    y1 = pFunc x1
+    pdfFunc = normalDensity 0 1
+    invPdfFunc = normalDensityInverse 0 1
+    cdfFunc = standardNormalCumulative
+    x1 = zigguratX1 n pdfFunc invPdfFunc cdfFunc
+    y1 = pdfFunc x1
     tailArea = 1 - standardNormalCumulative x1
     layerArea = x1*y1 + tailArea
   in
-    Array.fromList <| zigguratTables n y1 layerArea pFunc invPFunc
+    Array.fromList <| zigguratTables n y1 layerArea pdfFunc invPdfFunc
 
 
 makeTwoSided oneSidedGen =
