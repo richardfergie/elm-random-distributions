@@ -1,4 +1,18 @@
-module Random.Distributions (normal, normalDensity, normalDensityInverse, erf, erfc, ziggurat, zigguratTables, zigguratX1) where
+module Random.Distributions
+  ( erf
+  , erfc
+  , erfinv
+  , normal
+  , normalDensity
+  , normalDensityInverse
+  , normalQuantile
+  , probit
+  , quantile
+  -- , simpleNormal
+  , ziggurat
+  , zigguratTables
+  , zigguratX1
+  ) where
 
 {-| This library provides non-uniform distributions for the core Random library.
 
@@ -8,10 +22,16 @@ module Random.Distributions (normal, normalDensity, normalDensityInverse, erf, e
 # Distribution functions
 @docs normalDensity
 @docs normalDensityInverse
+@docs normalQuantile
 @docs erf
 @docs erfc
+@docs erfinv
+@docs probit
 
-# Ziggurat algorithm
+# Other functions
+@docs quantile
+
+## Ziggurat algorithm
 
 Helper functions implementing the [Ziggurat
 algorithm](https://en.wikipedia.org/wiki/Ziggurat_algorithm).
@@ -25,6 +45,70 @@ algorithm](https://en.wikipedia.org/wiki/Ziggurat_algorithm).
 import Array
 import Random
 import String
+
+{-| Return elements of the given list at the given indexes.
+Assumes indexes are sorted.
+Skips out of range indexes.
+-}
+getIndexes : List a -> List number -> List a
+getIndexes list indexes =
+  let
+    do index xs is =
+      case (List.head xs, List.head is) of
+        (Just x, Just i) ->
+          let
+            newXs = List.drop 1 xs
+            newIndex = index + 1
+          in
+            if i == index
+              then
+                x :: do newIndex newXs (List.drop 1 is)
+              else
+                do newIndex newXs is
+        a ->
+            []
+  in
+    do 0 list indexes
+
+{-| Produces sample quantiles of the xs corresponding to the given probabilities.
+
+    quantile samples probs
+
+Based on the [corresponding R function](https://stat.ethz.ch/R-manual/R-devel/library/stats/html/quantile.html).
+
+`probs` is assumed to be a sorted list of probabilities.
+-}
+quantile : List Float -> List Float -> List Float
+quantile samples probs =
+  let
+    numSamples = List.length samples
+    fracProbIndex p = p * (toFloat numSamples)
+    fracIndices = List.map fracProbIndex probs
+
+    maxIndex = numSamples - 1
+    lowerIndices = List.map (clamp 0 maxIndex << floor) fracIndices
+    upperIndices = List.map (clamp 0 maxIndex << ceiling) fracIndices
+
+    sorted = List.sort samples
+    lowerQuantiles = getIndexes sorted lowerIndices
+    upperQuantiles = getIndexes sorted upperIndices
+
+    fractions = List.map (\f -> f - toFloat (truncate f)) fracIndices
+
+    interpolate f l u = (1-f)*l + f*u
+  in
+    List.map3 interpolate fractions lowerQuantiles upperQuantiles
+
+-- -- Simple implementation of quantile without interpolation between samples.
+-- quantile : List Float -> List Float -> List Float
+-- quantile samples probs =
+--   let
+--     numSamples = List.length samples
+--     probIndex p = floor <| p * (toFloat numSamples)
+--     indexes = List.map probIndex probs
+--     sorted = List.sort samples
+--   in
+--     getIndexes sorted indexes
 
 {-| The error function
 Approximation with a maximal error of 1.2*10^-7.
@@ -68,6 +152,26 @@ Approximation with a maximal error of 1.2*10^-7.
 erfc : Float -> Float
 erfc x = clamp 0 2 (1 - erf x)
 
+{-| The inverse of the error function.
+
+Implementation [from wikipedia](https://en.wikipedia.org/wiki/Error_function#Approximation_with_elementary_functions)
+-}
+erfinv : Float -> Float
+erfinv x =
+  let
+    sgn = if x > 0 then 1 else -1
+    -- a = 0.147 -- error < 0.00012
+    a = (8*(pi-3)) / (3*pi*(4 - pi)) -- error < 0.00035 very accurate near 0 and inf
+    ln1_x2 = ln (1 - x^2)
+    parens = 2/(pi*a) + ln1_x2 / 2
+    sqrt1 = parens^2 - ln1_x2 / a
+    terms = sqrt sqrt1 - parens
+    result = sgn * sqrt terms
+  in
+    if x == 0
+      then 0
+      else result
+
 {-| The natural logarithm
 -}
 ln x = logBase e x
@@ -81,6 +185,31 @@ probability =
 identityGenerator : Float -> Random.Generator Float
 identityGenerator x =
   Random.map (always x) Random.bool
+
+{-| The probit function.
+
+The quantile function for the standard normal distribution (i.e. the inverse of
+the cumulative distribution function of the standard normal distribution).
+
+Implemented using the inverse error function [as described on Wikipedia](https://en.wikipedia.org/wiki/Probit#Computation)
+-}
+probit : Float -> Float
+probit p =
+  (sqrt 2) * erfinv (2*p - 1)
+
+{-| The quantile function for a normal distribution with the given mean and standard deviation
+
+i.e. the inverse of the cumulative distribution function of the normal
+distribution.
+
+    q = normalQuantile mu sigma p
+
+Implementation using the probit function [from Wikipedia](https://en.wikipedia.org/wiki/Normal_distribution#Quantile_function).
+-}
+normalQuantile : Float -> Float -> Float -> Float
+normalQuantile mu sigma p =
+  mu + sigma * probit p
+
 
 {-| The density function for a normal distribution.
 
@@ -103,9 +232,9 @@ normalDensity mu sigma x =
 normalDensityInverse : Float -> Float -> Float -> Float
 normalDensityInverse mu sigma y =
   let
-    z = clamp 0 1 y
+    z = max 0 y
     factor = 1 / (sigma * sqrt (2*pi))
-    scaledProb = clamp 0 1 <| z / factor
+    scaledProb = max 0 <| z / factor
     sqrDeviance = max 0 <| (-2 * sigma^2 * ln (scaledProb))
   in
     mu + sqrt sqrDeviance
@@ -311,6 +440,9 @@ normalZigguratTables =
     Array.fromList <| zigguratTables n y1 layerArea pFunc invPFunc
 
 
+makeTwoSided oneSidedGen =
+  Random.map2 (\x b -> if b then x else -x) oneSidedGen Random.bool
+
 {-| Generate samples from a standard normal distribution.
 -}
 normal : Random.Generator Float
@@ -326,4 +458,28 @@ normal =
     tailFunc = zigguratNormalTail x1
     oneSidedNormal = ziggurat tables pFunc tailFunc
   in
-    Random.map2 (\x b -> if b then x else -x) oneSidedNormal Random.bool
+    makeTwoSided oneSidedNormal
+
+
+simpleNormal : Random.Generator Float
+simpleNormal =
+  let
+    pFunc = normalDensity 0 1
+    invPFunc = normalDensityInverse 0 1
+    f0 = pFunc 0
+    u1u2gen = Random.pair probability probability
+    -- fallback (u1, u2) =
+    --   let
+    --     xMax = invPFunc (u1 * f0)
+    --     x = u2 * xMax
+    --   in
+    --     identityGenerator x
+    fallback (u1, u2) =
+      let
+        x = probit u1
+        -- x = u2 * xMax
+      in
+        identityGenerator x
+    oneSidedNormal = u1u2gen `Random.andThen` fallback
+  in
+    makeTwoSided oneSidedNormal
