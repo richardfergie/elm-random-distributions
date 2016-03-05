@@ -276,7 +276,7 @@ zigguratX1 n pFunc invPFunc =
     areaDiffFunc x1 =
       let
         y1 = pFunc x1
-        tailArea = 1 - standardNormalCumulative x1
+        tailArea = 1 - standardNormalCumulative x1 -- TODO: This is not generic.
         baseLayerArea = x1*y1 + tailArea
         tables = zigguratTables n y1 baseLayerArea pFunc invPFunc
         (xn_1, yn_1) =
@@ -457,7 +457,7 @@ zigguratNormalTailMarsaglia x1 =
   in
     u1u2gen `Random.andThen` fallback
 
-tableSize = 2
+tableSize = 256
 normalZigguratTables : Array.Array (Float, Float)
 normalZigguratTables =
   let
@@ -487,7 +487,8 @@ normal =
     -- (x1, y1) = case List.head tables of
       Just pair -> pair
       Nothing -> Debug.crash "The ziggurat tables for the normal distribution were empty"
-    tailFunc = zigguratNormalTail x1
+    -- tailFunc = zigguratNormalTail x1
+    tailFunc = zigguratNormalTailMarsaglia x1
     oneSidedNormal = ziggurat tables pFunc tailFunc
   in
     makeTwoSided oneSidedNormal
