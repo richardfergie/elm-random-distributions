@@ -3,6 +3,7 @@ module Random.Distributions
   , erfc
   , erfinv
   , normal
+  , normalCumulative
   , normalDensity
   , normalDensityInverse
   , normalQuantile
@@ -20,6 +21,7 @@ module Random.Distributions
 @docs normal
 
 # Distribution functions
+@docs normalCumulative
 @docs normalDensity
 @docs normalDensityInverse
 @docs normalQuantile
@@ -211,7 +213,27 @@ normalQuantile mu sigma p =
   mu + sigma * probit p
 
 
-{-| The density function for a normal distribution.
+{-| The cumulative distribution function of the standard normal distribution.
+
+    y = standardNormalCdf x
+
+-}
+standardNormalCumulative : Float -> Float
+standardNormalCumulative x =
+  0.5 * (1 + erf (x / sqrt 2))
+
+{-| The cumulative distribution function of a normal distribution.
+
+Implemented using [the error function](https://en.wikipedia.org/wiki/Normal_distribution#Cumulative_distribution_function).
+
+    y = normalCumulative mu sigma x
+
+-}
+normalCumulative : Float -> Float -> Float -> Float
+normalCumulative mu sigma x =
+  standardNormalCumulative <| (x - mu) / sigma
+
+{-| The probability density function for a normal distribution.
 
     y = normalDensity mu sigma x
 
@@ -254,7 +276,7 @@ zigguratX1 n pFunc invPFunc =
     areaDiffFunc x1 =
       let
         y1 = pFunc x1
-        tailArea = erfc x1
+        tailArea = 1 - standardNormalCumulative x1
         baseLayerArea = x1*y1 + tailArea
         tables = zigguratTables n y1 baseLayerArea pFunc invPFunc
         (xn_1, yn_1) =
@@ -400,6 +422,16 @@ ziggurat tables pFunc tailGen =
   in
     layerU0U1gen `Random.andThen` chooseLayer
 
+{-| Fallback algorithm for the tail of a normal distribution.
+-}
+zigguratNormalTail : Float -> Random.Generator Float
+zigguratNormalTail x1 =
+  let
+    p1 = standardNormalCumulative -x1
+    fallback p = probit (p*p1)
+  in
+    Random.map fallback probability
+
 {-| Fallback algorithm for the tail of a normal distribution
 
 From wikipedia: https://en.wikipedia.org/wiki/Ziggurat_algorithm
@@ -410,8 +442,8 @@ For a normal distribution, Marsaglia suggests a compact algorithm:
   3.  If 2y > x^2, return x + x1.
   4.  Otherwise, go back to step 1.
 -}
-zigguratNormalTail : Float -> Random.Generator Float
-zigguratNormalTail x1 =
+zigguratNormalTailMarsaglia : Float -> Random.Generator Float
+zigguratNormalTailMarsaglia x1 =
   let
     u1u2gen = Random.pair probability probability
     fallback (u1, u2) =
@@ -425,7 +457,7 @@ zigguratNormalTail x1 =
   in
     u1u2gen `Random.andThen` fallback
 
-tableSize = 256
+tableSize = 2
 normalZigguratTables : Array.Array (Float, Float)
 normalZigguratTables =
   let
@@ -434,7 +466,7 @@ normalZigguratTables =
     invPFunc = normalDensityInverse 0 1
     x1 = zigguratX1 n pFunc invPFunc
     y1 = pFunc x1
-    tailArea = erfc x1
+    tailArea = 1 - standardNormalCumulative x1
     layerArea = x1*y1 + tailArea
   in
     Array.fromList <| zigguratTables n y1 layerArea pFunc invPFunc
