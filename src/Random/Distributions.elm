@@ -1,4 +1,4 @@
-module Random.Distributions
+module Random.Distributions exposing
   ( erf
   , erfc
   , erfinv
@@ -13,7 +13,7 @@ module Random.Distributions
   , ziggurat
   , zigguratTables
   , zigguratX1
-  ) where
+  )
 
 {-| This library provides non-uniform distributions for the core Random library.
 
@@ -362,7 +362,7 @@ zigguratTables n y1 layerArea pFunc invPFunc =
         yi1 = yi + layerArea / xi
         xi1 = invPFunc yi1
       in (xi1, yi1)
-    layerList = List.scanl (\_ x1y1 -> nextLayer x1y1) (x1, y1) [1..n]
+    layerList = List.scanl (\_ x1y1 -> nextLayer x1y1) (x1, y1) (List.range 1 n)
     ficticiousX0Y0 = (layerArea/y1, 0)
   in
     ficticiousX0Y0 :: layerList
@@ -419,9 +419,9 @@ ziggurat tables pFunc tailGen =
                     then
                       identityGenerator x
                     else
-                      layerU0U1gen `Random.andThen` chooseLayer
+                      layerU0U1gen |> Random.andThen chooseLayer
   in
-    layerU0U1gen `Random.andThen` chooseLayer
+    layerU0U1gen |> Random.andThen chooseLayer
 
 {-| Fallback algorithm for the tail of a normal distribution.
 -}
@@ -456,7 +456,7 @@ zigguratNormalTailMarsaglia x1 =
           then identityGenerator (x + x1)
           else zigguratNormalTail x1
   in
-    u1u2gen `Random.andThen` fallback
+    u1u2gen |> Random.andThen fallback
 
 tableSize = 256
 normalZigguratTables : Array.Array (Float, Float)
@@ -515,6 +515,6 @@ simpleNormal =
         -- x = u2 * xMax
       in
         identityGenerator x
-    oneSidedNormal = u1u2gen `Random.andThen` fallback
+    oneSidedNormal = u1u2gen |> Random.andThen fallback
   in
     makeTwoSided oneSidedNormal
